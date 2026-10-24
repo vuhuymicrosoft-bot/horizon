@@ -20,6 +20,12 @@ fn channels(rgba: u32) -> vec4<u32> {
     return vec4(rgba & 0xffu, (rgba >> 8u) & 0xffu, (rgba >> 16u) & 0xffu, rgba >> 24u);
 }
 
+// One channel of mix(current, next, millis / 1000), scalar: some older Intel
+// Metal compilers fail on the same maths written as a vec4<u32> division.
+fn blend(a: u32, b: u32, millis: u32) -> u32 {
+    return (a * (1000u - millis) + b * millis + 500u) / 1000u;
+}
+
 @compute @workgroup_size(8, 8)
 fn animate(@builtin(global_invocation_id) id: vec3<u32>) {
     let size = textureDimensions(level).x;
@@ -42,7 +48,12 @@ fn animate(@builtin(global_invocation_id) id: vec3<u32>) {
         // mix(current, next, millis / 1000), rounded to the nearest 8-bit
         // value (halves up) in integers: the same on every GPU.
         let next = channels(frames[job.next + texel]);
-        color = (color * (1000u - job.millis) + next * job.millis + 500u) / 1000u;
+        color = vec4<u32>(
+            blend(color.x, next.x, job.millis),
+            blend(color.y, next.y, job.millis),
+            blend(color.z, next.z, job.millis),
+            blend(color.w, next.w, job.millis),
+        );
     }
     textureStore(level, id.xy, job.layer, vec4<f32>(color) / 255.0);
 }
